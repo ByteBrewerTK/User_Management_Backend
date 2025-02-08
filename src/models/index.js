@@ -7,8 +7,8 @@ import AuditLog from "./auditLog.model.js";
 import Session from "./session.model.js";
 
 // Define Relationships
-User.belongsToMany(Role, { through: UserRole, foreignKey: "userId" });
-Role.belongsToMany(User, { through: UserRole, foreignKey: "roleId" });
+User.belongsTo(Role, { foreignKey: "roleId", as: "role" });
+Role.hasMany(User, { foreignKey: "roleId", as: "users" });
 
 User.hasMany(AuditLog, { foreignKey: "userId" });
 AuditLog.belongsTo(User, { foreignKey: "userId" });
@@ -16,18 +16,9 @@ AuditLog.belongsTo(User, { foreignKey: "userId" });
 User.hasMany(Session, { foreignKey: "userId" });
 Session.belongsTo(User, { foreignKey: "userId" });
 
-const syncDatabase = async () => {
-	try {
-		await sequelize.sync({ alter: true });
-		console.log("Database synchronized");
-	} catch (error) {
-		console.error("Database sync failed:", error);
-	}
-};
 
 export {
 	sequelize,
-	syncDatabase,
 	User,
 	Role,
 	Permission,
