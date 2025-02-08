@@ -1,5 +1,7 @@
+// models/User.js
 import { DataTypes } from "sequelize";
 import sequelize from "../config/db.js";
+import Role from "./role.model.js";
 
 const User = sequelize.define("User", {
 	id: {
@@ -20,6 +22,12 @@ const User = sequelize.define("User", {
 		type: DataTypes.STRING,
 		allowNull: false,
 	},
+	roleId: {
+		type: DataTypes.UUID,
+		foreignKey : true,
+	},
 });
+
+User.belongsTo(Role, { foreignKey: "roleId" });
 
 export default User;
