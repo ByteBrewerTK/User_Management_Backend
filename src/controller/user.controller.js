@@ -1,88 +1,167 @@
 import bcrypt from "bcryptjs";
-import jwt from "jsonwebtoken";
 import User from "../models/user.model.js";
 import Role from "../models/role.model.js";
-import { JWT_SECRET } from "../config/dotenv.js"
+import { sendWelcomeEmailAdmin } from "../../utils/nodemailer.js";
+import { uploadCloudinary } from "../../utils/cloudinary.js";
+import Busboy from "busboy";
+import path from "path";
 
-// Signup (Register User)
-export const signup = async (req, res) => {
-	const { name, email, password, role } = req.body;
-	console.log(name)
+const isValidDate = (dob) => {
+	const regex = /^\d{4}-\d{2}-\d{2}$/;
+	if (!regex.test(dob)) return false;
 
-	try {
-		// Check if user already exists
-		const existingUser = await User.findOne({ where: { email } });
-		if (existingUser)
-			return res.status(400).json({ message: "User already exists" });
-
-		// Hash password
-		const hashedPassword = await bcrypt.hash(password, 10);
-
-		// Create user
-		const user = await User.create({
-			name,
-			email,
-			password: hashedPassword,
-		});
-
-		// Assign role (default to 'User' if no role provided)
-		const assignedRole = await Role.findOne({
-			where: { name: role || "User" },
-		});
-		if (assignedRole) await user.addRole(assignedRole);
-
-		// Generate JWT Token
-		const token = jwt.sign({ id: user.id }, JWT_SECRET, {
-			expiresIn: "1h",
-		});
-
-		res.status(201).json({
-			message: "User registered successfully",
-			token,
-		});
-	} catch (err) {
-		res.status(500).json({
-			message: "Error while signing up",
-			error: err.message,
-		});
-	}
+	const date = new Date(dob);
+	return !isNaN(date.getTime()) && date.toISOString().split("T")[0] === dob;
 };
 
-// Login
-export const login = async (req, res) => {
-	const { email, password } = req.body;
+const generatePassword = (name) => {
+	const nameSubstring = name.length > 4 ? name.slice(0, 4) : name;
 
-	try {
-		// Check if user exists
-		const user = await User.findOne({ where: { email }, include: Role });
-		if (!user) return res.status(400).json({ message: "User not found" });
+	const randomHex = Math.floor(Math.random() * 16777215)
+		.toString(16)
+		.padStart(4, "0");
 
-		// Compare password
-		const isMatch = await bcrypt.compare(password, user.password);
-		if (!isMatch)
-			return res.status(400).json({ message: "Invalid credentials" });
+	const specialChars = [
+		"!",
+		"@",
+		"#",
+		"$",
+		"%",
+		"^",
+		"&",
+		"*",
+		"(",
+		")",
+		"_",
+		"-",
+		"=",
+		"+",
+	];
+	const randomSpecialChar =
+		specialChars[Math.floor(Math.random() * specialChars.length)];
 
-		// Get user roles
-		const roles = user.Roles.map((role) => role.name);
+	let password = nameSubstring + randomHex + randomSpecialChar;
 
-		// Generate JWT Token
-		const token = jwt.sign({ id: user.id, roles }, JWT_SECRET, {
-			expiresIn: "1h",
-		});
+	password = password.slice(0, 8);
 
-		res.status(200).json({ message: "Login successful", token });
-	} catch (err) {
-		res.status(500).json({
-			message: "Error during login",
-			error: err.message,
-		});
-	}
+	return password;
+};
+
+export const addUser = async (req, res) => {
+	const busboy = Busboy({ headers: req.headers });
+
+	let name = "";
+	let dob = "";
+	let role = "";
+	let email = "";
+	let profileImage = null;
+
+	busboy.on("field", (fieldname, val) => {
+		if (fieldname === "name") {
+			name = val;
+		} else if (fieldname === "dob") {
+			dob = val;
+		} else if (fieldname === "role") {
+			role = val;
+		} else if (fieldname === "email") {
+			email = val;
+		}
+	});
+
+	busboy.on("file", (fieldname, file, filename, encoding, mimetype) => {
+		if (fieldname === "profileImage" && mimetype.startsWith("image/")) {
+			profileImage = file;
+		}
+	});
+
+	busboy.on("finish", async () => {
+		try {
+			console.log(name, dob, role, email);
+
+			// Check if all required fields exist
+			if (!name || !dob || !role || !email) {
+				return res
+					.status(400)
+					.json({ message: "All fields are required!" });
+			}
+
+			// Validate Date of Birth format (YYYY-MM-DD)
+			if (!isValidDate(dob)) {
+				return res
+					.status(400)
+					.json({ message: "Invalid DOB format! Use YYYY-MM-DD." });
+			}
+
+			const existingUser = await User.findOne({ where: { email } });
+			if (existingUser) {
+				return res.status(409).json({
+					message: "User already exists with this email!",
+				});
+			}
+
+			let cloudinaryResult;
+			if (profileImage) {
+				// Upload profile image to Cloudinary
+				cloudinaryResult = await uploadCloudinary(profileImage);
+			}
+
+			const profileImageUrl = cloudinaryResult
+				? cloudinaryResult.secure_url
+				: `https://api.dicebear.com/9.x/initials/svg?seed=${encodeURIComponent(
+						name
+				  )}`;
+
+			const password = generatePassword(name);
+			// Hash password
+			const hashedPassword = await bcrypt.hash(password, 10);
+
+			// Check if the role exists in the Role table
+			const roleRecord = await Role.findOne({ where: { name: role } });
+			if (!roleRecord) {
+				return res.status(400).json({ message: "Invalid role!" });
+			}
+
+			// Save user with profile image and role
+			const newUser = await User.create({
+				name,
+				dob,
+				email,
+				password: hashedPassword,
+				avatar: profileImageUrl,
+				roleId: roleRecord.id,
+			});
+
+			if (!newUser) {
+				return res
+					.status(500)
+					.json({ message: "Error while adding user" });
+			}
+
+			// Send welcome email to the admin with credentials
+			sendWelcomeEmailAdmin(name, email, password);
+
+			res.status(200).json({
+				message: "User created successfully!",
+				user: newUser,
+			});
+		} catch (err) {
+			console.error(err);
+			res.status(500).json({
+				message: "Error creating user",
+				error: err.message,
+			});
+		}
+	});
+
+	req.pipe(busboy); // Pipe the request through busboy
 };
 
 // Get All Users (Only for Admin)
-export const getAllUsers = async (req, res) => {
+export const getAllUsers = async (_, res) => {
 	try {
-		const users = await User.findAll({ include: Role });
+		const users = await User.findAll({
+			include: [{ model: Role }],
+		});
 		res.status(200).json(users);
 	} catch (err) {
 		res.status(500).json({
