@@ -52,7 +52,7 @@ const otpTemplate = (otpCode) => {
             ${otpCode}
         </div>
         <p>This code will expire in 5 minutes. If you didn't request this code, please ignore this email.</p>
-        <p>Best regards,<br>Your App Team</p>
+        <p>Best regards,<br>Team Aegix</p>
     </div>
     <div class="footer">
         This is an automated message. Please do not reply to this email.
