@@ -1,5 +1,4 @@
 import { Sequelize } from "sequelize";
-import "./dotenv.js"; 
 
 const sequelize = new Sequelize(
 	process.env.DB_NAME,
