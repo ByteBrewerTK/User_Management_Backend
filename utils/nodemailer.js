@@ -1,6 +1,7 @@
 import nodemailer from "nodemailer";
 import otpTemplate from "../template/otpTemplate.js";
 import resetPasswordTemplate from "../template/resetPasswordTemplate.js";
+import welcomeEmailTemplate from "../template/welcomeEmailTemplate.js";
 export const transporter = nodemailer.createTransport({
 	host: process.env.MAIL_HOST,
 	port: 465,
@@ -47,7 +48,7 @@ export const sendResetPasswordMail = (email, fullName, confirmationLink) => {
 	sendMail(email, template, "Confirm your registration");
 };
 export const sendWelcomeEmailAdmin = (name, email, password) => {
-	const template = sendWelcomeEmailAdmin(name.split(" ")[0], email, password);
+	const template = welcomeEmailTemplate(name.split(" ")[0], email, password);
 
 	sendMail(email, template, "Confirm your registration");
 };
